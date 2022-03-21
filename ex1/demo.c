@@ -11,6 +11,8 @@ int main()
         a=a*10;
         t+=a;
         n--;
+        float b = 1.23e5;
+        a=s+t;
     }
     printf("a+aa+...=%d\n",s);
     return 0;
