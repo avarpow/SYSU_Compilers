@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -56,7 +57,6 @@ type GrammarLL1 struct {
 	unfoldGrammar [](map[uint8](Token))
 	first         map[uint8]([]uint8)
 	follow        map[uint8]([]uint8)
-	ParseTable    map[uint8]([]uint8)
 	parseTable    map[uint8](map[uint8]([]uint8))
 	ready         bool
 }
@@ -521,4 +521,20 @@ func main() {
 	} else {
 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
 	}
+	//read from stdin
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter expression: ")
+		expression, _ := reader.ReadString('\n')
+		expression = strings.Replace(expression, " ", "", -1)
+		expression = strings.Replace(expression, "\r", "", -1)
+		expression = strings.Replace(expression, "\n", "", -1)
+		err = Grammar.ParseExpression(expression)
+		if err != nil {
+			debugPrintf(ERROR, "Parse fail %s\n", err)
+		} else {
+			debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+		}
+	}
+
 }
