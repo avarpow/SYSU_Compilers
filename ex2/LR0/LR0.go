@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -80,7 +81,7 @@ type GrammarLR0 struct {
 	first         map[uint8]([]uint8)
 	follow        map[uint8]([]uint8)
 	parseTable    map[uint8](map[uint8]([]uint8))
-	nfa           []Node
+	closure       []Node
 	ready         bool
 }
 
@@ -92,7 +93,8 @@ func (Grammar *GrammarLR0) buildGrammar(grammar_filename string) {
 	// Grammar.genFirst()
 	// Grammar.genFollow()
 	// Grammar.printFirstFollow()
-	Grammar.genNFA()
+	Grammar.genClosure()
+	Grammar.printGrammarJumpTable()
 	Grammar.ready = true
 }
 func (Grammar *GrammarLR0) printFirstFollow() {
@@ -393,10 +395,10 @@ func (Grammar *GrammarLR0) printParseTable() {
 		debugPrintf(level, "%s\n", printStr)
 	}
 }
-func (Grammar *GrammarLR0) __buildNFA(nfaIndex int) {
+func (Grammar *GrammarLR0) __buildClosure(closureIndex int) {
 	level := DEBUG
-	// nfaNode := Grammar.nfa[nfaIndex]
-	debugPrintf(level, "build nfa %d\n", nfaIndex)
+	// closureNode := Grammar.closure[closureIndex]
+	debugPrintf(level, "build closure %d\n", closureIndex)
 
 }
 func (Grammar *GrammarLR0) __addRunToken(runToken RunToken) []RunToken {
@@ -453,9 +455,9 @@ func uniqueToken(runtokens []RunToken) []RunToken {
 	}
 	return result
 }
-func (Grammar *GrammarLR0) __expandNFA(stateSet *[]RunToken) {
+func (Grammar *GrammarLR0) __expandClosure(stateSet *[]RunToken) {
 	level := DEBUG
-	debugPrint(level, "expandNFA\n")
+	debugPrint(level, "expandClosure\n")
 	printStateSet(*stateSet)
 	size := len(*stateSet)
 	for i := 0; i < size; i++ {
@@ -463,13 +465,13 @@ func (Grammar *GrammarLR0) __expandNFA(stateSet *[]RunToken) {
 	}
 	//remove duplicate
 	*stateSet = uniqueToken(*stateSet)
-	debugPrint(level, "after expandNFA\n")
+	debugPrint(level, "after expandClosure\n")
 	printStateSet(*stateSet)
 }
 func (Grammar *GrammarLR0) __checkStateSet(stateSet []RunToken) (int, bool) {
 	level := DEBUG
-	//check if stateSet is in nfa status
-	for index, node := range Grammar.nfa {
+	//check if stateSet is in closure status
+	for index, node := range Grammar.closure {
 		flag := true
 		if len(stateSet) != len(node.stateSet) {
 			flag = false
@@ -490,11 +492,11 @@ func (Grammar *GrammarLR0) __checkStateSet(stateSet []RunToken) (int, bool) {
 	return -1, false
 }
 
-func (Grammar *GrammarLR0) __makeJump(nfaNode *Node, token uint8) {
+func (Grammar *GrammarLR0) __makeJump(closureNode *Node, token uint8) {
 	level := DEBUG
-	debugPrintf(level, "make jump from %d token %c\n", nfaNode.id, token)
+	debugPrintf(level, "make jump from %d token %c\n", closureNode.id, token)
 	newStateSet := make([]RunToken, 0)
-	for _, runtoken := range nfaNode.stateSet {
+	for _, runtoken := range closureNode.stateSet {
 		if runtoken.index < len(runtoken.token) && runtoken.token[runtoken.index] == token {
 			debugPrintf(level, "match token %c at Token %s\n", token, runtoken.token)
 			newStateSet = append(newStateSet, RunToken{
@@ -508,28 +510,28 @@ func (Grammar *GrammarLR0) __makeJump(nfaNode *Node, token uint8) {
 			printStateSet(newStateSet)
 		}
 	}
-	Grammar.__expandNFA(&newStateSet)
+	Grammar.__expandClosure(&newStateSet)
 	index, flag := Grammar.__checkStateSet(newStateSet)
 	if flag {
-		debugPrintf(level, "exist token %c from %d jump to %d\n", token, nfaNode.id, index)
-		nfaNode.jumpTable[token] = index
+		debugPrintf(level, "exist token %c from %d jump to %d\n", token, closureNode.id, index)
+		closureNode.jumpTable[token] = index
 	} else {
 		//add a new state
-		debugPrintf(level, "add new state id:%d\n", len(Grammar.nfa))
-		nfaNode.jumpTable[token] = len(Grammar.nfa)
-		Grammar.nfa = append(Grammar.nfa, Node{
-			id:        len(Grammar.nfa),
+		debugPrintf(level, "add new state id:%d\n", len(Grammar.closure))
+		closureNode.jumpTable[token] = len(Grammar.closure)
+		Grammar.closure = append(Grammar.closure, Node{
+			id:        len(Grammar.closure),
 			stateSet:  newStateSet,
 			jumpTable: make(map[uint8]int),
 		})
-		debugPrintf(level, "not exist token %c from %d jump to %d\n", token, nfaNode.id, nfaNode.jumpTable[token])
+		debugPrintf(level, "not exist token %c from %d jump to %d\n", token, closureNode.id, closureNode.jumpTable[token])
 
 	}
 }
-func (Grammar *GrammarLR0) __buildJumptable(nfaNode *Node) {
+func (Grammar *GrammarLR0) __buildJumptable(closureNode *Node) {
 	level := DEBUG
-	// nfaNode := Grammar.nfa[nfaIndex]
-	debugPrintf(level, "build jump table %d\n", nfaNode.id)
+	// closureNode := Grammar.closure[closureIndex]
+	debugPrintf(level, "build jump table %d\n", closureNode.id)
 	buildOk := make(map[uint8]bool)
 	for _, key := range Grammar.nonTerminals {
 		buildOk[key] = false
@@ -537,15 +539,15 @@ func (Grammar *GrammarLR0) __buildJumptable(nfaNode *Node) {
 	for _, key := range Grammar.terminals {
 		buildOk[key] = false
 	}
-	for _, runtoken := range nfaNode.stateSet {
+	for _, runtoken := range closureNode.stateSet {
 		debugPrint(level, "runToken ")
 		printRunToken(runtoken)
 		if runtoken.index == len(runtoken.token) {
 			//reach the end
-			debugPrintf(level, "reach end state %d can be reduceAble\n", nfaNode.id)
-			nfaNode.reduceAble = true
+			debugPrintf(level, "reach end state %d can be reduceAble\n", closureNode.id)
+			closureNode.reduceAble = true
 		} else if !buildOk[runtoken.token[runtoken.index]] {
-			Grammar.__makeJump(nfaNode, runtoken.token[runtoken.index])
+			Grammar.__makeJump(closureNode, runtoken.token[runtoken.index])
 			printRunToken(runtoken)
 
 			buildOk[runtoken.token[runtoken.index]] = true
@@ -553,26 +555,72 @@ func (Grammar *GrammarLR0) __buildJumptable(nfaNode *Node) {
 	}
 
 }
-func (Grammar *GrammarLR0) genNFA() {
+func printJumpTable(jumpTable map[uint8]int) {
 	level := INFO
-	Grammar.nfa = make([]Node, 0)
-	Grammar.nfa = append(Grammar.nfa, Node{
+	for key, value := range jumpTable {
+		debugPrintf(level, "token %c to %d\n", key, value)
+	}
+	debugPrint(level, "\n")
+}
+func (Grammar *GrammarLR0) printGrammarJumpTable() {
+	level := INFO
+	title := "state id Reducable?"
+	for _, key := range Grammar.terminals {
+		title += fmt.Sprintf("%5c", key)
+	}
+	for _, key := range Grammar.nonTerminals {
+		title += fmt.Sprintf("%5c", key)
+	}
+	debugPrintf(level, "%s\n", title)
+	for index := range Grammar.closure {
+		txt := fmt.Sprintf("%6s%-9d", "", index)
+		node := Grammar.closure[index]
+		if node.reduceAble {
+			txt += fmt.Sprintf("%4s", "yes")
+		} else {
+			txt += fmt.Sprintf("%4s", "no")
+		}
+		for _, key := range Grammar.terminals {
+			if value, ok := node.jumpTable[key]; ok {
+				txt += fmt.Sprintf("%5d", value)
+			} else {
+				txt += fmt.Sprintf("%5s", "")
+			}
+		}
+		for _, key := range Grammar.nonTerminals {
+			if value, ok := node.jumpTable[key]; ok {
+				txt += fmt.Sprintf("%5d", value)
+			} else {
+				txt += fmt.Sprintf("%5s", "")
+			}
+		}
+		debugPrintf(level, "%s\n", txt)
+	}
+	debugPrint(level, "\n")
+}
+
+func (Grammar *GrammarLR0) genClosure() {
+	level := INFO
+	Grammar.closure = make([]Node, 0)
+	Grammar.closure = append(Grammar.closure, Node{
 		id:        0,
 		jumpTable: make(map[uint8]int),
 		stateSet:  make([]RunToken, 0),
 	})
-	Grammar.nfa[0].stateSet = append(Grammar.nfa[0].stateSet, RunToken{
-		token: Grammar.grammar['S'][0],
+	Grammar.closure[0].stateSet = append(Grammar.closure[0].stateSet, RunToken{
+		token: Grammar.grammar['Y'][0],
 		index: 0,
-		left:  'S',
+		left:  'Y',
 	})
-	for i := 0; i < len(Grammar.nfa); i++ {
-		Grammar.__expandNFA(&Grammar.nfa[i].stateSet)
-		Grammar.__buildJumptable(&Grammar.nfa[i])
+	for i := 0; i < len(Grammar.closure); i++ {
+		Grammar.__expandClosure(&Grammar.closure[i].stateSet)
+		Grammar.__buildJumptable(&Grammar.closure[i])
 	}
-	for i := 0; i < len(Grammar.nfa); i++ {
+	for i := 0; i < len(Grammar.closure); i++ {
 		debugPrintf(level, "state id:%d\n", i)
-		printStateSet(Grammar.nfa[i].stateSet)
+		printStateSet(Grammar.closure[i].stateSet)
+		// debugPrintf(level, "jumptable state %d\n", i)
+		// printJumpTable(Grammar.closure[i].jumpTable)
 	}
 
 }
@@ -605,72 +653,110 @@ func printErrorState(stack []uint8, finishStack []uint8, expression string, inde
 	}
 	debugPrintf(level, "%10s%5s%-10s\n", finishStack, "", copystack)
 }
+func printLR0State(stack []uint8, state_Stack []int, expression string, index int) {
+	level := INFO
+	leftExppressionstr := "   "
+	rightExppressionstr := "   "
+	leftExppression := expression[:index]
+	rightExppression := expression[index:]
+	for _, value := range leftExppression {
+		leftExppressionstr += fmt.Sprintf("%3c", value)
+	}
+	for _, value := range rightExppression {
+		rightExppressionstr += fmt.Sprintf("%3c", value)
+	}
+	stackstr := ""
+	state_stackstr := ""
+	for _, value := range stack {
+		stackstr += fmt.Sprintf("%3c", value)
+	}
+	for _, value := range state_Stack {
+		state_stackstr += fmt.Sprintf("%3d", value)
+	}
+	// debugPrintf(level, "%s\n", title)
+	debugPrintf(level, "%-30s%5s%-20s\n", "matched", "", "matching")
+	debugPrintf(level, "%-30s%5s%-20s\n", leftExppressionstr, "", rightExppression)
+	debugPrintf(level, "%-30s%5s%-20s\n", stackstr, "", "")
+	debugPrintf(level, "%-30s%5s%-20s\n", state_stackstr, "", "")
+
+}
 func (Grammar *GrammarLR0) ParseExpression(expression string) error {
 	level := INFO
 	debugPrintf(level, "\nParseExpression  %s\n", expression)
 	if !Grammar.ready {
 		debugPrintf(level, "Grammar not builded.\n")
-		return errors.New("Grammar not builded.")
+		return errors.New("Grammar not builded")
 	}
 	step := 0
+	index := 0
 	//add end symbol
 	expression += "#"
 	expression = strings.Replace(expression, " ", "", -1)
 	stack := make([]uint8, 0)
-	finishStack := make([]uint8, 0)
-	stack = append(stack, 'S')
-	for index := 0; len(stack) > 0; {
-		printState(stack, finishStack, expression, index)
-		char := expression[index]
-		topStack := stack[len(stack)-1]
-		if isTerminal(topStack) {
-			if topStack == char || topStack == 'n' && isNumber(char) {
-				if topStack == char {
-					debugPrintf(level, "step:%d match a operater %c %c\n", step, topStack, char)
-				} else {
-					debugPrintf(level, "step:%d match a number %c %c\n", step, topStack, char)
-				}
-				step++
-				finishStack = append(finishStack, topStack)
-				//pop stack
-				stack = stack[:len(stack)-1]
-				index++
-			} else {
-				debugPrintf(ERROR, "Error: %c != %c\n", topStack, char)
-				printErrorState(stack, finishStack, expression, index)
-				return errors.New("Error: " + string(topStack) + " != " + string(char))
-			}
-		} else if isNonTerminal(topStack) {
-			if isNumber(char) {
-				//lookup in ParseTable
-				token := Grammar.parseTable[topStack]['n']
-				//pop stack
-				stack = stack[:len(stack)-1]
-				//push token
-				for i := len(token) - 1; i >= 0; i-- {
-					stack = append(stack, token[i])
-				}
-			} else {
-				//lookup in ParseTable
-				token := Grammar.parseTable[topStack][char]
-				if len(token) == 0 {
-					printErrorState(stack, finishStack, expression, index)
-					return errors.New("Error: NonTerminal [" + string(topStack) + "] lookup fail")
-				}
-				//pop stack
-				stack = stack[:len(stack)-1]
-				//push token
-				for i := len(token) - 1; i >= 0; i-- {
-					stack = append(stack, token[i])
-				}
-			}
-		} else if topStack == 'e' {
-			stack = stack[:len(stack)-1]
-		} else {
-			debugPrintf(ERROR, "Error: %c\n", topStack)
-			printErrorState(stack, finishStack, expression, index)
-			return errors.New("Error: " + string(topStack) + " != " + string(char))
+	state_stack := make([]int, 0)
+	// finishStack := make([]uint8, 0)
+	stack = append([]uint8{'#'}, stack...)
+	state_stack = append(state_stack, 0)
+	for {
+		printLR0State(stack, state_stack, expression, index)
+		if stack[len(stack)-1] == 'Y' {
+			return nil
 		}
+		stateTop := state_stack[len(state_stack)-1]
+		if len(state_stack) < len(stack) {
+			next := stack[len(stack)-1]
+			if value, ok := Grammar.closure[stateTop].jumpTable[next]; ok {
+				//state change
+				state_stack = append(state_stack, value)
+			}
+		} else {
+			next := expression[index]
+
+			if isNumber(next) {
+				if value, ok := Grammar.closure[stateTop].jumpTable['n']; ok {
+					//state change
+					state_stack = append(state_stack, value)
+					stack = append(stack, 'n')
+					index++
+				}
+			} else if next == '(' {
+				if value, ok := Grammar.closure[stateTop].jumpTable['(']; ok {
+					//state change
+					state_stack = append(state_stack, value)
+					stack = append(stack, '(')
+					index++
+				}
+			} else if value, ok := Grammar.closure[stateTop].jumpTable[next]; ok {
+				//state change
+				state_stack = append(state_stack, value)
+				stack = append(stack, next)
+				index++
+			} else if Grammar.closure[stateTop].reduceAble {
+				//reduce
+				//find left
+				for _, runtoken := range Grammar.closure[stateTop].stateSet {
+					if runtoken.index == len(runtoken.token) {
+						if runtoken.left == 'Y' {
+							stack = stack[:len(stack)-len(runtoken.token)]
+							stack = append(stack, runtoken.left)
+							state_stack = state_stack[:len(state_stack)-len(runtoken.token)]
+						} else {
+							debugPrintf(level, "next step reduce use: ")
+							printRunToken(runtoken)
+							debugPrintf(level, "\n")
+							stack = stack[:len(stack)-len(runtoken.token)]
+							stack = append(stack, runtoken.left)
+							state_stack = state_stack[:len(state_stack)-len(runtoken.token)]
+						}
+					}
+				}
+			} else {
+				//error
+				return errors.New(fmt.Sprintf("Can not accept next %c at state :%d", next, stateTop))
+			}
+		}
+
+		step++
 	}
 	return nil
 }
@@ -680,41 +766,41 @@ func main() {
 	Grammar := GrammarLR0{}
 	//read grammar
 	Grammar.buildGrammar(grammar_filename)
-	// expression := "3+1*(5+6)/7"
-	// err := Grammar.ParseExpression(expression)
-	// if err != nil {
-	// 	debugPrintf(ERROR, "Parse fail %s\n", err)
-	// } else {
-	// 	debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	// }
-	// expression = "3+1*(5+6)/7+"
-	// err = Grammar.ParseExpression(expression)
-	// if err != nil {
-	// 	debugPrintf(ERROR, "Parse fail %s\n", err)
-	// } else {
-	// 	debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	// }
-	// expression = "3+1*(5++6"
-	// err = Grammar.ParseExpression(expression)
-	// if err != nil {
-	// 	debugPrintf(ERROR, "Parse fail %s\n", err)
-	// } else {
-	// 	debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	// }
-	// //read from stdin
-	// reader := bufio.NewReader(os.Stdin)
-	// for {
-	// 	fmt.Print("Enter expression: ")
-	// 	expression, _ := reader.ReadString('\n')
-	// 	expression = strings.Replace(expression, " ", "", -1)
-	// 	expression = strings.Replace(expression, "\r", "", -1)
-	// 	expression = strings.Replace(expression, "\n", "", -1)
-	// 	err = Grammar.ParseExpression(expression)
-	// 	if err != nil {
-	// 		debugPrintf(ERROR, "Parse fail %s\n", err)
-	// 	} else {
-	// 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	// 	}
-	// }
+	expression := "3*(2-1)"
+	err := Grammar.ParseExpression(expression)
+	if err != nil {
+		debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
+	} else {
+		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+	}
+	expression = "3+1*(5+6)/7-"
+	err = Grammar.ParseExpression(expression)
+	if err != nil {
+		debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
+	} else {
+		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+	}
+	expression = "3+1*(5+6"
+	err = Grammar.ParseExpression(expression)
+	if err != nil {
+		debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
+	} else {
+		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+	}
+	//read from stdin
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter expression: ")
+		expression, _ := reader.ReadString('\n')
+		expression = strings.Replace(expression, " ", "", -1)
+		expression = strings.Replace(expression, "\r", "", -1)
+		expression = strings.Replace(expression, "\n", "", -1)
+		err = Grammar.ParseExpression(expression)
+		if err != nil {
+			debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
+		} else {
+			debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+		}
+	}
 
 }
