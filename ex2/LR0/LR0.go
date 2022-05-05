@@ -39,17 +39,6 @@ func unique(uint8Slice []uint8) []uint8 {
 	return list
 }
 
-// func uniqueToken(RunTokenSlice []RunToken) []RunToken {
-// 	keys := make(map[RunToken]bool)
-// 	list := []RunToken{}
-// 	for _, entry := range RunTokenSlice {
-// 		if _, value := keys[entry]; !value {
-// 			keys[entry] = true
-// 			list = append(list, entry)
-// 		}
-// 	}
-// 	return list
-// }
 func debugPrintf(level DebugLevel, format string, a ...interface{}) {
 	if level >= debugLevel {
 		fmt.Printf(format, a...)
@@ -78,9 +67,6 @@ type GrammarLR0 struct {
 	terminals     []uint8
 	nonTerminals  []uint8
 	unfoldGrammar [](map[uint8](Token))
-	first         map[uint8]([]uint8)
-	follow        map[uint8]([]uint8)
-	parseTable    map[uint8](map[uint8]([]uint8))
 	closure       []Node
 	ready         bool
 }
@@ -90,28 +76,9 @@ func (Grammar *GrammarLR0) buildGrammar(grammar_filename string) {
 	Grammar.readGrammarFromFile(grammar_filename)
 	Grammar.genTerminalAndNonterminal()
 	Grammar.genUnfoldGrammar()
-	// Grammar.genFirst()
-	// Grammar.genFollow()
-	// Grammar.printFirstFollow()
 	Grammar.genClosure()
 	Grammar.printGrammarJumpTable()
 	Grammar.ready = true
-}
-func (Grammar *GrammarLR0) printFirstFollow() {
-	level := INFO
-	debugPrintf(level, " %10s   %10s\n", "first", "follow")
-	for key, _ := range Grammar.grammar {
-		debugPrintf(level, "%c -> ", key)
-		firstStr := ""
-		followStr := ""
-		for _, token := range Grammar.first[key] {
-			firstStr += fmt.Sprintf("%c ", token)
-		}
-		for _, token := range Grammar.follow[key] {
-			followStr += fmt.Sprintf("%c ", token)
-		}
-		debugPrintf(level, " %-10s  %-10s\n", firstStr, followStr)
-	}
 }
 
 func printGrammar(grammar map[uint8]([]Token)) {
@@ -215,15 +182,6 @@ func (Grammar *GrammarLR0) genUnfoldGrammar() {
 	printUnfoldGrammar(Grammar.unfoldGrammar)
 
 }
-
-// type Node struct {
-// 	in   uint8
-// 	out  uint8
-// 	next []uint8
-// }
-// type Graph struct {
-// 	nodes map[uint8]Node
-// }
 func isNumber(token uint8) bool {
 	return token >= '0' && token <= '9'
 }
@@ -237,170 +195,6 @@ func isTerminal(token uint8) bool {
 	return !(isNonTerminal(token) || isEmptyToken(token))
 }
 
-func (Grammar *GrammarLR0) __buildFirst(key uint8, buildOK *map[uint8]bool) {
-	level := DEBUG
-	debugPrintf(level, "build first %c\n", key)
-	for _, token := range Grammar.grammar[key] {
-		firstChar := token[0]
-		if isTerminal(firstChar) {
-			//是终结符,添加进入first
-			Grammar.first[key] = append(Grammar.first[key], firstChar)
-			debugPrintf(level, "[%c] add %c  terminal\n", key, firstChar)
-		} else if isEmptyToken(firstChar) {
-			//是空,添加进入first
-			debugPrintf(level, "[%c] add %c  empty\n", key, firstChar)
-			Grammar.first[key] = append(Grammar.first[key], firstChar)
-		} else if isNonTerminal(firstChar) {
-			if !(*buildOK)[firstChar] {
-				Grammar.__buildFirst(firstChar, buildOK)
-			}
-			debugPrintf(level, "[%c] add %c  firstChar set\n", key, firstChar)
-			for _, first := range Grammar.first[firstChar] {
-				//将该非终结符的first集合添加到该非终结符的first集合中
-				Grammar.first[key] = append(Grammar.first[key], first)
-				debugPrintf(level, "\r[%c] add %c  first set\n", key, first)
-
-			}
-		} else {
-			debugPrintf(ERROR, "Wrong token: %c\n", firstChar)
-			os.Exit(1)
-		}
-	}
-	Grammar.first[key] = unique(Grammar.first[key])
-}
-func printFirst(first map[uint8][]uint8) {
-	level := INFO
-	debugPrintf(level, "first list\n")
-	for key, value := range first {
-		debugPrintf(level, "%c -> ", key)
-		for _, token := range value {
-			debugPrintf(level, "%c ", token)
-		}
-		debugPrint(level, "\n")
-	}
-}
-
-func (Grammar *GrammarLR0) genFirst() {
-	Grammar.first = make(map[uint8]([]uint8))
-	buildOK := make(map[uint8]bool)
-	for key, _ := range Grammar.grammar {
-		buildOK[key] = false
-	}
-	for key, _ := range Grammar.grammar {
-		if !buildOK[key] {
-			Grammar.__buildFirst(key, &buildOK)
-			buildOK[key] = true
-		}
-	}
-	printFirst(Grammar.first)
-}
-func (Grammar *GrammarLR0) __buildFollow(key uint8, buildOK *map[uint8]bool) {
-	level := DEBUG
-	if key == 'S' {
-		Grammar.follow[key] = append(Grammar.follow[key], '#')
-		return
-	}
-	debugPrintf(level, "build follow %c\n", key)
-	for k, value := range Grammar.grammar {
-		for _, token := range value {
-			index := strings.Index(string(token), string(key))
-			if index != -1 && index != len(token)-1 {
-				debugPrintf(level, "find %c in token %s\n", key, token)
-				next := token[index+1]
-				debugPrintf(level, "next = %c\n", next)
-				if isTerminal(next) {
-					Grammar.follow[key] = append(Grammar.follow[key], next)
-					debugPrintf(level, "[%c] add %c  terminal\n", key, next)
-				} else if isNonTerminal(next) {
-					if !(*buildOK)[next] {
-						Grammar.__buildFollow(next, buildOK)
-					}
-					debugPrintf(level, "[%c] add %c  follow set\n", key, next)
-					for _, follow := range Grammar.first[next] {
-						if follow == 'e' {
-							if !(*buildOK)[next] {
-								Grammar.__buildFollow(next, buildOK)
-							}
-							Grammar.follow[key] = append(Grammar.follow[key], Grammar.follow[next]...)
-							continue
-						}
-						Grammar.follow[key] = append(Grammar.follow[key], follow)
-						debugPrintf(level, "\r[%c] add %c  follow set\n", key, follow)
-
-					}
-				} else {
-					debugPrintf(ERROR, "Wrong token: %c\n", next)
-					os.Exit(1)
-				}
-			} else if index == len(token)-1 {
-				if k == 'S' {
-					Grammar.follow[key] = append(Grammar.follow[key], '#')
-				} else if k != token[len(token)-1] {
-					if !(*buildOK)[k] {
-						Grammar.__buildFollow(k, buildOK)
-					}
-					debugPrintf(level, "[%c] at last add first [%c]\n", key, k)
-					for _, follow := range Grammar.follow[k] {
-						Grammar.follow[key] = append(Grammar.follow[key], follow)
-						debugPrintf(level, "\r[%c] add %c  first set\n", key, follow)
-					}
-				}
-			}
-		}
-	}
-	Grammar.follow[key] = unique(Grammar.follow[key])
-}
-func printFollow(follow map[uint8][]uint8) {
-	level := INFO
-	debugPrint(level, "\nfollow list\n")
-	for key, value := range follow {
-		debugPrintf(level, "%c -> ", key)
-		for _, token := range value {
-			debugPrintf(level, "%c ", token)
-		}
-		debugPrint(level, "\n")
-	}
-	debugPrint(level, "\n")
-}
-func (Grammar *GrammarLR0) genFollow() {
-	level := DEBUG
-	Grammar.follow = make(map[uint8]([]uint8))
-	buildOK := make(map[uint8]bool)
-	for key, _ := range Grammar.grammar {
-		buildOK[key] = false
-	}
-	for key, _ := range Grammar.grammar {
-		if !buildOK[key] {
-			Grammar.__buildFollow(key, &buildOK)
-			debugPrintf(level, "build follow %c ok\n", key)
-			buildOK[key] = true
-		}
-	}
-	printFollow(Grammar.follow)
-}
-func (Grammar *GrammarLR0) printParseTable() {
-	level := INFO
-	debugPrint(level, "\n      ParseTable\n")
-	title := "      "
-	for _, t := range Grammar.terminals {
-		title += fmt.Sprintf("%-6c", t)
-	}
-	debugPrintf(level, "%s\n", title)
-	for _, nt := range Grammar.nonTerminals {
-		debugPrintf(level, "%c     ", nt)
-		printStr := ""
-		for _, t := range Grammar.terminals {
-			printStr += fmt.Sprintf("%-6s", Grammar.parseTable[nt][t])
-		}
-		debugPrintf(level, "%s\n", printStr)
-	}
-}
-func (Grammar *GrammarLR0) __buildClosure(closureIndex int) {
-	level := DEBUG
-	// closureNode := Grammar.closure[closureIndex]
-	debugPrintf(level, "build closure %d\n", closureIndex)
-
-}
 func (Grammar *GrammarLR0) __addRunToken(runToken RunToken) []RunToken {
 	level := DEBUG
 	result := make([]RunToken, 0)
@@ -624,35 +418,6 @@ func (Grammar *GrammarLR0) genClosure() {
 	}
 
 }
-func printState(stack []uint8, finishStack []uint8, expression string, index int) {
-	level := DEBUG
-	leftExppression := expression[:index]
-	rightExppression := expression[index:]
-	debugPrintf(level, "%-10s%5s%-10s\n", "matched", "", "matching")
-	debugPrintf(level, "%10s%5s%-10s\n", leftExppression, "", rightExppression)
-	copystack := make([]uint8, len(stack))
-	copy(copystack, stack)
-	//reverse stack
-	for i, j := 0, len(copystack)-1; i < j; i, j = i+1, j-1 {
-		copystack[i], copystack[j] = copystack[j], copystack[i]
-	}
-	debugPrintf(level, "%10s%5s%-10s\n\n", finishStack, "", copystack)
-}
-func printErrorState(stack []uint8, finishStack []uint8, expression string, index int) {
-	level := ERROR
-	leftExppression := expression[:index]
-	rightExppression := expression[index:]
-	debugPrintf(level, "\nError state dump\n")
-	debugPrintf(level, "%-10s%5s%-10s\n", "matched", "", "matching")
-	debugPrintf(level, "%10s%5s%-10s\n", leftExppression, "", rightExppression)
-	copystack := make([]uint8, len(stack))
-	copy(copystack, stack)
-	//reverse stack
-	for i, j := 0, len(copystack)-1; i < j; i, j = i+1, j-1 {
-		copystack[i], copystack[j] = copystack[j], copystack[i]
-	}
-	debugPrintf(level, "%10s%5s%-10s\n", finishStack, "", copystack)
-}
 func printLR0State(stack []uint8, state_Stack []int, expression string, index int) {
 	level := INFO
 	leftExppressionstr := "   "
@@ -685,7 +450,7 @@ func (Grammar *GrammarLR0) ParseExpression(expression string) error {
 	debugPrintf(level, "\nParseExpression  %s\n", expression)
 	if !Grammar.ready {
 		debugPrintf(level, "Grammar not builded.\n")
-		return errors.New("Grammar not builded")
+		return errors.New("grammar not builded")
 	}
 	step := 0
 	index := 0
@@ -711,7 +476,6 @@ func (Grammar *GrammarLR0) ParseExpression(expression string) error {
 			}
 		} else {
 			next := expression[index]
-
 			if isNumber(next) {
 				if value, ok := Grammar.closure[stateTop].jumpTable['n']; ok {
 					//state change
@@ -752,13 +516,12 @@ func (Grammar *GrammarLR0) ParseExpression(expression string) error {
 				}
 			} else {
 				//error
-				return errors.New(fmt.Sprintf("Can not accept next %c at state :%d", next, stateTop))
+				return fmt.Errorf("can not accept next %c at state :%d", next, stateTop)
 			}
 		}
 
 		step++
 	}
-	return nil
 }
 
 func main() {
