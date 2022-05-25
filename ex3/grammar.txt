@@ -1,0 +1,11 @@
+S -> E
+E -> TR
+R -> +TR
+R -> -TR
+R -> e
+T -> FY
+Y -> *FY
+Y -> /FY
+Y -> e
+F -> n
+F -> (E)
