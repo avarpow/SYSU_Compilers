@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -403,9 +404,9 @@ func stringfySYN(SYN []uint8) string {
 		if v >= 128 {
 			v = v - 128
 			if v == '+' || v == '-' || v == '*' || v == '/' {
-				str += "G(" + string(v) + ")"
+				str += "GEQ(" + string(v) + ")"
 			} else {
-				str += "P(" + string(v) + ")"
+				str += "PUSH(" + string(v) + ")"
 			}
 		} else {
 			str += string(v)
@@ -430,8 +431,8 @@ func printState(stack []uint8, finishStack []uint8, SEM_stack []uint8, QT [4]uin
 	level := INFO
 	leftExppression := expression[:index]
 	rightExppression := expression[index:]
-	debugPrintf(level, "%-10s%5s%-10s%5s%-10s%5s%-10s\n", "matched", "", "matching", "", "SEM_stack", "", "QT")
-	debugPrintf(level, "%10s%5s%-10s%5s%-10s%5s%-10s\n", leftExppression, "", rightExppression, "", stringfySEM(SEM_stack), "", stringfyQT(QT))
+	debugPrintf(level, "%-10s%5s%-20s%5s%-10s%5s%-10s\n", "matched", "", "matching", "", "SEM_stack", "", "QT")
+	debugPrintf(level, "%10s%5s%-20s%5s%-10s%5s%-10s\n", leftExppression, "", rightExppression, "", stringfySEM(SEM_stack), "", stringfyQT(QT))
 	copystack := make([]uint8, len(stack))
 	copy(copystack, stack)
 	//reverse stack
@@ -516,6 +517,7 @@ func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 	temp_variable := uint8(0)
 	SEM_stack := make([]uint8, 0)
 	QT := [4]uint8{}
+	Grammar.QTs = make([][4]uint8, 0)
 	for index := 0; len(stack) > 0; {
 		printState(stack, finishStack, SEM_stack, QT, expression, index)
 		QT[0] = 0
@@ -638,27 +640,34 @@ func main() {
 	Grammar := GrammarLL1{}
 	//read grammar
 	Grammar.buildGrammar(grammar_filename)
-	expression := "a+b*c+d"
+	expression := "a+b*c"
 	err := Grammar.ParseExpression(expression)
 	if err != nil {
 		debugPrintf(ERROR, "Parse fail %s\n", err)
 	} else {
 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
 	}
+	expression = "a+b*(c+d)/f"
+	err = Grammar.ParseExpression(expression)
+	if err != nil {
+		debugPrintf(ERROR, "Parse fail %s\n", err)
+	} else {
+		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+	}
 	//read from stdin
-	// reader := bufio.NewReader(os.Stdin)
-	// for {
-	// 	fmt.Print("Enter expression: ")
-	// 	expression, _ := reader.ReadString('\n')
-	// 	expression = strings.Replace(expression, " ", "", -1)
-	// 	expression = strings.Replace(expression, "\r", "", -1)
-	// 	expression = strings.Replace(expression, "\n", "", -1)
-	// 	err = Grammar.ParseExpression(expression)
-	// 	if err != nil {
-	// 		debugPrintf(ERROR, "Parse fail %s\n", err)
-	// 	} else {
-	// 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	// 	}
-	// }
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter expression: ")
+		expression, _ := reader.ReadString('\n')
+		expression = strings.Replace(expression, " ", "", -1)
+		expression = strings.Replace(expression, "\r", "", -1)
+		expression = strings.Replace(expression, "\n", "", -1)
+		err = Grammar.ParseExpression(expression)
+		if err != nil {
+			debugPrintf(ERROR, "Parse fail %s\n", err)
+		} else {
+			debugPrintf(ERROR, "Parse expression %s success.\n", expression)
+		}
+	}
 
 }
