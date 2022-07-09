@@ -676,29 +676,29 @@ func (Grammar *GrammarLL1) build_inner_text() string {
 		var2 := v[2]
 		result := v[3]
 		if var1 > 128 {
-			out_string += fmt.Sprintf("    mov    eax, DWORD PTR t%c[rip]\n", var1-128)
+			out_string += fmt.Sprintf("	mov    eax, DWORD PTR t%c[rip]\n", var1-128)
 		} else {
-			out_string += fmt.Sprintf("    mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var1])
+			out_string += fmt.Sprintf("	mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var1])
 		}
 		if var2 > 128 {
-			out_string += fmt.Sprintf("    mov    eax, DWORD PTR t%c[rip]\n", var2-128)
+			out_string += fmt.Sprintf("	mov    eax, DWORD PTR t%c[rip]\n", var2-128)
 		} else {
-			out_string += fmt.Sprintf("    mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var2])
+			out_string += fmt.Sprintf("	mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var2])
 		}
 		if op == '+' {
-			out_string += "    add    eax, ebx\n"
+			out_string += "	add    eax, ebx\n"
 		} else if op == '-' {
-			out_string += "    sub    eax, ebx\n"
+			out_string += "	sub    eax, ebx\n"
 		} else if op == '*' {
-			out_string += "    imul   eax, ebx\n"
+			out_string += "	imul   eax, ebx\n"
 		} else if op == '/' {
-			out_string += "    cdq\n"
-			out_string += "    idiv    ebx\n"
+			out_string += "	cdq\n"
+			out_string += "	idiv    ebx\n"
 		}
 		if i != len(Grammar.QTs)-1 {
-			out_string += fmt.Sprintf("    mov    DWORD PTR t%d[rip], eax\n", result)
+			out_string += fmt.Sprintf("	mov    DWORD PTR t%d[rip], eax\n", result)
 		} else {
-			out_string += fmt.Sprintf("    mov    DWORD PTR result[rip], eax\n")
+			out_string += fmt.Sprintf("	mov    DWORD PTR result[rip], eax\n")
 		}
 	}
 
