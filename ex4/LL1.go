@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -58,6 +57,8 @@ type GrammarLL1 struct {
 	first         map[uint8]([]uint8)
 	follow        map[uint8]([]uint8)
 	parseTable    map[uint8](map[uint8]([]uint8))
+	QTs           [][4]uint8
+	valueMap      map[uint8](uint8)
 	ready         bool
 }
 
@@ -70,6 +71,8 @@ func (Grammar *GrammarLL1) buildGrammar(grammar_filename string) {
 	Grammar.genFollow()
 	Grammar.printFirstFollow()
 	Grammar.genParseTable()
+	Grammar.QTs = make([][4]uint8, 0)
+	Grammar.valueMap = make(map[uint8](uint8))
 	Grammar.ready = true
 }
 func (Grammar *GrammarLL1) printFirstFollow() {
@@ -200,7 +203,7 @@ func (Grammar *GrammarLL1) genUnfoldGrammar() {
 // 	nodes map[uint8]Node
 // }
 func isNumber(token uint8) bool {
-	return token >= '0' && token <= '9'
+	return token >= '0' && token <= '9' || token >= 'a' && token <= 'z' && token != 'e'
 }
 func isNonTerminal(token uint8) bool {
 	return token >= 'A' && token <= 'Z'
@@ -396,19 +399,49 @@ func (Grammar *GrammarLL1) genParseTable() {
 	}
 	Grammar.printParseTable()
 }
-func printState(stack []uint8, finishStack []uint8, expression string, index int) {
+func stringfySYN(SYN []uint8) string {
+	str := ""
+	for _, v := range SYN {
+		if v >= 128 {
+			v = v - 128
+			if v == '+' || v == '-' || v == '*' || v == '/' {
+				str += "GEQ(" + string(v) + ")"
+			} else {
+				str += "PUSH(" + string(v) + ")"
+			}
+		} else {
+			str += string(v)
+		}
+	}
+	return str
+}
+func stringfySEM(SEM []uint8) string {
+	ret := ""
+	for _, v := range SEM {
+		if v > 128 {
+			ret += "t"
+			ret += string(v - 128)
+		} else {
+			ret += string(v)
+		}
+		ret += " "
+	}
+	return ret
+}
+func printState(stack []uint8, finishStack []uint8, SEM_stack []uint8, QT [4]uint8, expression string, index int) {
 	level := INFO
 	leftExppression := expression[:index]
 	rightExppression := expression[index:]
-	debugPrintf(level, "%-10s%5s%-10s\n", "matched", "", "matching")
-	debugPrintf(level, "%10s%5s%-10s\n", leftExppression, "", rightExppression)
+	debugPrintf(level, "%-10s%5s%-20s%5s%-10s%5s%-10s\n", "matched", "", "matching", "", "SEM_stack", "", "QT")
+	debugPrintf(level, "%10s%5s%-20s%5s%-10s%5s%-10s\n", leftExppression, "", rightExppression, "", stringfySEM(SEM_stack), "", stringfyQT(QT))
 	copystack := make([]uint8, len(stack))
 	copy(copystack, stack)
 	//reverse stack
 	for i, j := 0, len(copystack)-1; i < j; i, j = i+1, j-1 {
 		copystack[i], copystack[j] = copystack[j], copystack[i]
 	}
-	debugPrintf(level, "%10s%5s%-10s\n\n", finishStack, "", copystack)
+
+	debugPrintf(level, "%10s%5s%-10s\n\n", finishStack, "", stringfySYN(copystack))
 }
 func printErrorState(stack []uint8, finishStack []uint8, expression string, index int) {
 	level := ERROR
@@ -425,6 +458,49 @@ func printErrorState(stack []uint8, finishStack []uint8, expression string, inde
 	}
 	debugPrintf(level, "%10s%5s%-10s\n", finishStack, "", copystack)
 }
+func stringfyQT(QT [4]uint8) string {
+	ret := ""
+	if QT[0] == 0 {
+		return "none"
+	}
+	ret += fmt.Sprintf("%c ", QT[0])
+	if QT[2] > 128 {
+		ret += fmt.Sprint("t")
+		QT[2] -= 128
+	}
+	ret += fmt.Sprintf("%c ", QT[2])
+	if QT[1] > 128 {
+		ret += fmt.Sprint("t")
+		QT[1] -= 128
+	}
+	ret += fmt.Sprintf("%c ", QT[1])
+	ret += fmt.Sprintf("t%d ", QT[3])
+	return ret
+}
+func printQT(QT [4]uint8) {
+	level := INFO
+	debugPrintf(level, "QT: ")
+	debugPrintf(level, "%c ", QT[0])
+	if QT[2] > 128 {
+		debugPrint(level, "t")
+		QT[2] -= 128
+	}
+	debugPrintf(level, "%c ", QT[2])
+	if QT[1] > 128 {
+		debugPrint(level, "t")
+		QT[1] -= 128
+	}
+	debugPrintf(level, "%c ", QT[1])
+	debugPrintf(level, "t%d ", QT[3])
+	debugPrint(level, "\n")
+}
+func (Grammar *GrammarLL1) PrintQuaternary() {
+	level := INFO
+	debugPrintf(level, "Quaternary:\n")
+	for _, v := range Grammar.QTs {
+		printQT(v)
+	}
+}
 func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 	level := INFO
 	debugPrintf(level, "\nParseExpression  %s\n", expression)
@@ -439,11 +515,35 @@ func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 	stack := make([]uint8, 0)
 	finishStack := make([]uint8, 0)
 	stack = append(stack, 'S')
+	temp_variable := uint8(0)
+	SEM_stack := make([]uint8, 0)
+	QT := [4]uint8{}
+	Grammar.QTs = make([][4]uint8, 0)
 	for index := 0; len(stack) > 0; {
-		printState(stack, finishStack, expression, index)
+		printState(stack, finishStack, SEM_stack, QT, expression, index)
+		QT[0] = 0
 		char := expression[index]
 		topStack := stack[len(stack)-1]
-		if isTerminal(topStack) {
+		if topStack > 128 {
+			topStack = topStack - 128
+			if topStack == '+' || topStack == '-' || topStack == '*' || topStack == '/' {
+				num1 := SEM_stack[len(SEM_stack)-1]
+				num2 := SEM_stack[len(SEM_stack)-2]
+				QT[0] = topStack
+				QT[1] = num1
+				QT[2] = num2
+				QT[3] = uint8(temp_variable)
+				SEM_stack = SEM_stack[:len(SEM_stack)-2]
+				SEM_stack = append(SEM_stack, (temp_variable+'0')+128)
+				temp_variable++
+				Grammar.QTs = append(Grammar.QTs, QT)
+			} else if isNumber(topStack) {
+				debugPrintf(level, "push %c to SEM_stack\n", topStack)
+				SEM_stack = append(SEM_stack, topStack)
+			} else {
+			}
+			stack = stack[:len(stack)-1]
+		} else if isTerminal(topStack) {
 			if topStack == char || topStack == 'n' && isNumber(char) {
 				if topStack == char {
 					debugPrintf(level, "step:%d match a operater %c %c\n", step, topStack, char)
@@ -466,9 +566,29 @@ func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 				token := Grammar.parseTable[topStack]['n']
 				//pop stack
 				stack = stack[:len(stack)-1]
-				//push token
-				for i := len(token) - 1; i >= 0; i-- {
-					stack = append(stack, token[i])
+				//check token start with operater
+				if token[0] == '+' || token[0] == '-' || token[0] == '*' || token[0] == '/' {
+					token_copy := make([]uint8, len(token))
+					copy(token_copy, token)
+					//insert push operater in the token
+					token_copy = append(token_copy[:2], token_copy[1:]...)
+					token_copy[2] = 128 + token_copy[0]
+					for i := len(token_copy) - 1; i >= 0; i-- {
+						stack = append(stack, token_copy[i])
+					}
+				} else if token[0] == 'n' {
+					token_copy := make([]uint8, len(token))
+					copy(token_copy, token)
+					token_copy = append(token_copy, char+128)
+					//push token_copy
+					for i := len(token_copy) - 1; i >= 0; i-- {
+						stack = append(stack, token_copy[i])
+					}
+				} else {
+					//push token
+					for i := len(token) - 1; i >= 0; i-- {
+						stack = append(stack, token[i])
+					}
 				}
 			} else {
 				//lookup in ParseTable
@@ -479,9 +599,29 @@ func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 				}
 				//pop stack
 				stack = stack[:len(stack)-1]
-				//push token
-				for i := len(token) - 1; i >= 0; i-- {
-					stack = append(stack, token[i])
+				//check token start with operater
+				if token[0] == '+' || token[0] == '-' || token[0] == '*' || token[0] == '/' {
+					token_copy := make([]uint8, len(token))
+					copy(token_copy, token)
+					//insert push operater in the token
+					token_copy = append(token_copy[:2], token_copy[1:]...)
+					token_copy[2] = 128 + token_copy[0]
+					for i := len(token_copy) - 1; i >= 0; i-- {
+						stack = append(stack, token_copy[i])
+					}
+				} else if token[0] == 'n' {
+					token_copy := make([]uint8, len(token))
+					copy(token_copy, token)
+					token_copy = append(token_copy, char+128)
+					//push token_copy
+					for i := len(token_copy) - 1; i >= 0; i-- {
+						stack = append(stack, token_copy[i])
+					}
+				} else {
+					//push token
+					for i := len(token) - 1; i >= 0; i-- {
+						stack = append(stack, token[i])
+					}
 				}
 			}
 		} else if topStack == 'e' {
@@ -492,49 +632,125 @@ func (Grammar *GrammarLL1) ParseExpression(expression string) error {
 			return errors.New("Error: " + string(topStack) + " != " + string(char))
 		}
 	}
+	Grammar.PrintQuaternary()
+	Grammar.buildAssembleCode()
 	return nil
 }
+func (Grammar *GrammarLL1) build_data() string {
+	output_data := "section .data\n"
+	start := uint8('a')
+	for _, v := range Grammar.QTs {
+		var1 := v[1]
+		var2 := v[2]
+		if _, ok := Grammar.valueMap[var1]; !ok && var1 < 128 {
+			Grammar.valueMap[var1] = start
+			start++
+		}
+		if _, ok := Grammar.valueMap[var2]; !ok && var2 < 128 {
+			Grammar.valueMap[var2] = start
+			start++
+		}
 
+	}
+	for k, v := range Grammar.valueMap {
+		output_data += fmt.Sprintf("%c: \n", v)
+		output_data += fmt.Sprintf("    .long    %c\n", k)
+	}
+	output_data +=
+		`
+result:
+        .zero   4
+.LC0:
+        .string "%d"
+fmt:
+        .quad   .LC0
+`
+	return output_data
+}
+
+func (Grammar *GrammarLL1) build_inner_text() string {
+	out_string := ""
+	for i, v := range Grammar.QTs {
+		op := v[0]
+		var1 := v[1]
+		var2 := v[2]
+		result := v[3]
+		if var1 > 128 {
+			out_string += fmt.Sprintf("    mov    eax, DWORD PTR t%c[rip]\n", var1-128)
+		} else {
+			out_string += fmt.Sprintf("    mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var1])
+		}
+		if var2 > 128 {
+			out_string += fmt.Sprintf("    mov    eax, DWORD PTR t%c[rip]\n", var2-128)
+		} else {
+			out_string += fmt.Sprintf("    mov    ebx, DWORD PTR %c[rip]\n", Grammar.valueMap[var2])
+		}
+		if op == '+' {
+			out_string += "    add    eax, ebx\n"
+		} else if op == '-' {
+			out_string += "    sub    eax, ebx\n"
+		} else if op == '*' {
+			out_string += "    imul   eax, ebx\n"
+		} else if op == '/' {
+			out_string += "    cdq\n"
+			out_string += "    idiv    ebx\n"
+		}
+		if i != len(Grammar.QTs)-1 {
+			out_string += fmt.Sprintf("    mov    DWORD PTR t%d[rip], eax\n", result)
+		} else {
+			out_string += fmt.Sprintf("    mov    DWORD PTR result[rip], eax\n")
+		}
+	}
+
+	return out_string
+}
+func (Grammar *GrammarLL1) build_text() string {
+	output_text := "section .text\n"
+	output_text +=
+		`
+main:
+	push    rbp
+	mov     rbp, rsp
+	sub     rsp, 16
+`
+	output_text += Grammar.build_inner_text()
+
+	output_text +=
+		`
+	mov     edx, DWORD PTR result[rip]
+	mov     rax, QWORD PTR fmt[rip]
+	mov     esi, edx
+	mov     rdi, rax
+	mov     eax, 0
+	call    printf
+	mov     eax, 0
+	leave
+	ret
+`
+	return output_text
+}
+func (Grammar *GrammarLL1) buildAssembleCode() string {
+	output_str := ""
+	output_str += Grammar.build_data()
+	output_str += Grammar.build_text()
+	fmt.Print(output_str)
+	err := ioutil.WriteFile("AssembleCode.S", []byte(output_str), 0666)
+	if err != nil {
+		log.Print(err)
+	}
+	return output_str
+}
 func main() {
-	grammar_filename := "../grammar.txt"
+	grammar_filename := "grammar.txt"
 	Grammar := GrammarLL1{}
 	//read grammar
 	Grammar.buildGrammar(grammar_filename)
-	expression := "3+1*(5+6)/7"
+	expression := "4/2+5*3"
 	err := Grammar.ParseExpression(expression)
 	if err != nil {
 		debugPrintf(ERROR, "Parse fail %s\n", err)
 	} else {
 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	}
-	expression = "3+1/7+"
-	err = Grammar.ParseExpression(expression)
-	if err != nil {
-		debugPrintf(ERROR, "Parse fail %s\n", err)
-	} else {
-		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	}
-	expression = "3+(*6"
-	err = Grammar.ParseExpression(expression)
-	if err != nil {
-		debugPrintf(ERROR, "Parse fail %s\n", err)
-	} else {
-		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-	}
-	//read from stdin
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Print("Enter expression: ")
-		expression, _ := reader.ReadString('\n')
-		expression = strings.Replace(expression, " ", "", -1)
-		expression = strings.Replace(expression, "\r", "", -1)
-		expression = strings.Replace(expression, "\n", "", -1)
-		err = Grammar.ParseExpression(expression)
-		if err != nil {
-			debugPrintf(ERROR, "Parse fail %s\n", err)
-		} else {
-			debugPrintf(ERROR, "Parse expression %s success.\n", expression)
-		}
 	}
 
 }

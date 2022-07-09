@@ -19,7 +19,7 @@ const debug = true
 
 type DebugLevel int
 
-const debugLevel = DEBUG
+const debugLevel = INFO
 const (
 	DEBUG DebugLevel = iota
 	INFO
@@ -218,7 +218,7 @@ func (Grammar *GrammarLR0) __addRunToken(runToken RunToken) []RunToken {
 	return result
 }
 func printRunToken(runtoken RunToken) {
-	level := DEBUG
+	level := INFO
 	debugPrintf(level, "%c ", runtoken.left)
 	debugPrintf(level, "-> ")
 	debugPrintf(level, "%s.", runtoken.token[:runtoken.index])
@@ -252,7 +252,7 @@ func uniqueToken(runtokens []RunToken) []RunToken {
 func (Grammar *GrammarLR0) __expandClosure(stateSet *[]RunToken) {
 	level := DEBUG
 	debugPrint(level, "expandClosure\n")
-	printStateSet(*stateSet)
+	//printStateSet(*stateSet)
 	size := len(*stateSet)
 	for i := 0; i < size; i++ {
 		*stateSet = append(*stateSet, Grammar.__addRunToken((*stateSet)[i])...)
@@ -260,7 +260,7 @@ func (Grammar *GrammarLR0) __expandClosure(stateSet *[]RunToken) {
 	//remove duplicate
 	*stateSet = uniqueToken(*stateSet)
 	debugPrint(level, "after expandClosure\n")
-	printStateSet(*stateSet)
+	//printStateSet(*stateSet)
 }
 func (Grammar *GrammarLR0) __checkStateSet(stateSet []RunToken) (int, bool) {
 	level := DEBUG
@@ -301,7 +301,7 @@ func (Grammar *GrammarLR0) __makeJump(closureNode *Node, token uint8) {
 			copy(newStateSet[len(newStateSet)-1].token, runtoken.token)
 			newStateSet[len(newStateSet)-1].index = runtoken.index + 1
 			newStateSet[len(newStateSet)-1].left = runtoken.left
-			printStateSet(newStateSet)
+			//printStateSet(newStateSet)
 		}
 	}
 	Grammar.__expandClosure(&newStateSet)
@@ -335,14 +335,14 @@ func (Grammar *GrammarLR0) __buildJumptable(closureNode *Node) {
 	}
 	for _, runtoken := range closureNode.stateSet {
 		debugPrint(level, "runToken ")
-		printRunToken(runtoken)
+		//printRunToken(runtoken)
 		if runtoken.index == len(runtoken.token) {
 			//reach the end
 			debugPrintf(level, "reach end state %d can be reduceAble\n", closureNode.id)
 			closureNode.reduceAble = true
 		} else if !buildOk[runtoken.token[runtoken.index]] {
 			Grammar.__makeJump(closureNode, runtoken.token[runtoken.index])
-			printRunToken(runtoken)
+			//printRunToken(runtoken)
 
 			buildOk[runtoken.token[runtoken.index]] = true
 		}
@@ -416,7 +416,6 @@ func (Grammar *GrammarLR0) genClosure() {
 		// debugPrintf(level, "jumptable state %d\n", i)
 		// printJumpTable(Grammar.closure[i].jumpTable)
 	}
-
 }
 func printLR0State(stack []uint8, state_Stack []int, expression string, index int) {
 	level := INFO
@@ -536,14 +535,14 @@ func main() {
 	} else {
 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
 	}
-	expression = "3+1*(5+6)/7-"
+	expression = "3+1/7+"
 	err = Grammar.ParseExpression(expression)
 	if err != nil {
 		debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
 	} else {
 		debugPrintf(ERROR, "Parse expression %s success.\n", expression)
 	}
-	expression = "3+1*(5+6"
+	expression = "3+(*6"
 	err = Grammar.ParseExpression(expression)
 	if err != nil {
 		debugPrintf(ERROR, "Parse expression %s fail: %s\n", expression, err)
